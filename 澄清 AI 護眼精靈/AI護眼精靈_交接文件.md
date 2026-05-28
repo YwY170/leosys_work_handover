@@ -65,7 +65,9 @@ ChengChing-AI-EyeCare/
 │   │   ├── setting.py                # Flask Config（讀取 .env）
 │   │   ├── bot_config.py             # BotConfigManager：讀取 bot_configs.json + 環境變數
 │   │   └── prompts/
-│   │       └── cceye_system_prompt.txt  # 澄清眼科主要 System Prompt
+│   │       ├── cceye_system_prompt.txt   # 澄清眼科主要 System Prompt
+│   │       ├── triage_system_prompt.txt  # 智慧分流 System Prompt
+│   │       └── security_prompt.txt       # 安全防護 Prompt
 │   ├── routes/
 │   │   ├── multi_webhook.py          # LINE Webhook 路由
 │   │   ├── liff_routes.py            # LIFF 身份綁定路由
@@ -91,25 +93,146 @@ ChengChing-AI-EyeCare/
 │   │   └── user_storage.py           # 使用者 CRUD（含綁定狀態）
 │   └── utils/
 │       └── paths.py                  # 全域路徑常數（LOGS_DIR, APP_LOG…）
+│
 ├── config/
 │   ├── gunicorn.conf.py              # Gunicorn 生產配置（8 workers, timeout=120）
 │   └── systemd/
 │       └── cceye-linebot.service.example
-├── frontend/                         # LIFF 前端靜態頁面
-├── docs/                             # 開發任務文件
-├── specs/                            # 功能規格（001-xxx, 002-xxx…）
-├── scripts/
-│   └── check_token_usage.sh          # Token 用量快速查詢腳本
-├── requirements.txt
+│
+├── frontend/
+│   └── liff/
+│       └── bind/
+│           └── index.html            # LIFF 身份綁定前端頁面
+│
+├── tools/
+│   ├── create_admin.py               # 建立後台管理員帳號
+│   ├── find_place_ids.py             # 查詢 Google Maps data_id
+│   └── google_review_response_time.py# Google 評論回覆時間分析
+│
+├── specs/                            # 功能規格文件
+│   ├── 001-web-eye-exercise/
+│   ├── 002-line-bot-rag/
+│   ├── 003-line-bot-triage/
+│   ├── 004-line-bot-reminders/
+│   └── 005-line-bot-appointment/
+│
+├── requirements.txt                  # Python 依賴
 ├── run.py                            # 開發模式入口
-└── .env                              # 機密環境變數（不入 git）
+├── .gitignore
+└── README.md
+```
+
+### 3.1 功能模組對應程式架構
+
+以下依功能分類，列出各功能實際涉及的程式檔案：
+
+#### 🟢 一般衛教諮詢（通用 AI 問答）
+
+```
+app/services/gemini_service.py         # Gemini AI 通用服務（含安全防護）
+app/services/multi_linebot.py          # LINE Bot 核心邏輯 + 訊息處理
+app/services/token_tracker.py          # Token 用量計算與 Grounding 配額追蹤
+app/config/prompts/cceye_system_prompt.txt  # 澄清眼科主要 System Prompt
+app/routes/multi_webhook.py            # LINE Webhook 路由入口
+```
+
+#### 🟡 AI 症狀分流（智慧分流 + 醫師推薦）
+
+```
+app/services/gemini_service.py         # Gemini AI 通用服務（含安全防護）
+app/services/multi_linebot.py          # LINE Bot 核心邏輯 + 訊息處理
+app/services/triage_service.py         # 智慧分流服務（繼承 GeminiService）
+app/services/doctor_service.py         # 醫師資料查詢與推薦
+app/routes/multi_webhook.py            # LINE Webhook 路由入口
+```
+
+#### 🔵 健檢報告摘要 (暫定不會使用，可忽略)
+
+```
+app/services/health_check_service.py   # Google Sheets 健檢資料查詢
+app/services/health_summary_service.py # AI 生成健檢摘要
+app/services/multi_linebot.py          # LINE Bot 核心邏輯（健檢關鍵字觸發）
+app/routes/multi_webhook.py            # LINE Webhook 路由入口
+```
+
+#### 🟣 社區健檢管理後台
+
+```
+app/routes/checkup_routes.py           # 健檢管理後台 API（最大模組，27KB）
+app/services/checkup_import_service.py # 健檢資料匯入（Excel → DB）
+app/services/checkup_notify_service.py # 異常健檢通知推播
+app/services/abnormal_import_service.py# 異常資料匯入處理
+app/services/data_cleaner.py           # 資料清洗工具
+app/services/workbook_reader.py        # Excel 活頁簿讀取工具
+app/models/database.py                 # PostgreSQL 連線池
+```
+
+#### 🟠 就診提醒排程
+
+```
+app/services/appointment_reminder.py   # 就診提醒排程邏輯（APScheduler）
+app/services/his_service.py            # HIS 系統資料橋接
+config/gunicorn.conf.py                # post_fork() 確保僅單一 Worker 啟動排程
+```
+
+#### 🔴 身份綁定（LIFF）
+
+```
+app/routes/liff_routes.py             # LIFF 身份綁定路由
+app/models/user.py                    # User 資料模型
+app/models/user_storage.py            # 使用者 CRUD（含綁定狀態）
+app/models/database.py                # PostgreSQL 連線池
+frontend/liff/bind/                   # LIFF 前端靜態頁面
+```
+
+#### ⚪ 共用基礎設施
+
+```
+app/main.py                           # Flask 工廠函數：create_app()
+app/config/setting.py                 # Flask Config（讀取 .env）
+app/config/bot_config.py              # BotConfigManager：bot 設定管理
+app/utils/paths.py                    # 全域路徑常數
+app/models/database.py                # PostgreSQL 連線池（psycopg2）
+config/gunicorn.conf.py               # Gunicorn 生產配置
 ```
 
 ---
 
 ## 四、環境需求與安裝
 
-### 4.1 系統需求
+### 4.1 環境連線資訊
+
+#### 虛擬機
+
+| 項目 | 值 |
+|---|---|
+| 帳號 | ubuntu |
+| 密碼 | Cceye@dmin07 |
+| IP | 192.168.10.214 |
+| 部署路徑 | `/home/ubuntu/ChengChing-AI-EyeCare/` |
+
+```bash
+ssh ubuntu@192.168.10.214
+# 密碼：Cceye@dmin07
+```
+
+#### 資料庫
+
+| 項目 | 值 |
+|---|---|
+| 服務類型 | PostgreSQL |
+| 主機名 | localhost |
+| 端口 | 5432 |
+| 使用者名稱 | eyecare_user |
+| 密碼 | Cceye@dmin07 |
+| 資料庫 | eyecare |
+
+```bash
+psql -h localhost -U eyecare_user -d eyecare
+# 密碼：Cceye@dmin07
+```
+
+### 4.2 系統需求
 
 | 項目 | 版本 |
 |---|---|
@@ -119,7 +242,7 @@ ChengChing-AI-EyeCare/
 | PostgreSQL | 任意現代版本（建議 14+） |
 | RAM | 建議 4GB+（生產環境 8 workers） |
 
-### 4.2 Python 套件（requirements.txt）
+### 4.3 Python 套件（requirements.txt）
 
 ```
 flask==3.0.0
@@ -137,7 +260,7 @@ xlrd>=2.0.1
 openpyxl>=3.1.0
 ```
 
-### 4.3 安裝步驟
+### 4.4 安裝步驟
 
 ```bash
 git clone https://github.com/TIimLin/ChengChing-AI-EyeCare.git
