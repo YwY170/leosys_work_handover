@@ -59,20 +59,22 @@ Nginx (:80 or :443)
 ```
 chatbot-platform/
 ├── app/                              # Next.js App Router 頁面
-│   ├── page.tsx                      #   首頁（重導至聊天頁）
+│   ├── page.tsx                      #   首頁（重導至管理後台）
 │   ├── layout.tsx                    #   根佈局
 │   ├── globals.css                   #   全域樣式 (Tailwind)
 │   ├── chat/page.tsx                 #   聊天主頁面
 │   ├── admin/                        #   管理後台
-│   │   ├── layout.tsx
-│   │   ├── page.tsx
-│   │   ├── login/page.tsx
+│   │   ├── layout.tsx                #     管理後台 Layout（側邊欄）
+│   │   ├── page.tsx                  #     重定向至品牌列表
+│   │   ├── login/page.tsx            #     登入頁
+│   │   ├── stats/page.tsx            #     品牌數據總覽
 │   │   └── tenants/
-│   │       ├── page.tsx              #     品牌列表
+│   │       ├── page.tsx              #     品牌列表 + 嵌入碼
 │   │       └── [id]/
-│   │           ├── page.tsx          #     品牌編輯
+│   │           ├── page.tsx          #     品牌編輯 + 翻譯管理
 │   │           ├── services/         #     服務管理
-│   │           └── appearance/       #     外觀設定
+│   │           ├── appearance/       #     外觀設定（即時預覽）
+│   │           └── dashboard/        #     單一品牌數據儀表板
 │   └── api/
 │       ├── chat/route.ts             #   聊天 API 代理
 │       └── chat-widget/route.ts      #   嵌入式腳本產生器
@@ -87,8 +89,8 @@ chatbot-platform/
 │   │   ├── i18n.ts                   #   多語系
 │   │   └── utils.ts                  #   通用工具函式
 │   ├── types/index.ts                #   TypeScript 型別定義
-│   ├── contexts/LanguageContext.tsx  #   React Context（語言）
-│   └── locales/translations.json    #   前端翻譯檔
+│   ├── contexts/LanguageContext.tsx   #   React Context（語言）
+│   └── locales/translations.json     #   前端翻譯檔
 ├── backend/
 │   ├── app.py                        #   主 API 伺服器 (port 5000)
 │   ├── admin_app.py                  #   管理後台 API (port 5001)
@@ -96,6 +98,7 @@ chatbot-platform/
 │   ├── config/
 │   │   ├── tenant_manager.py         #   租戶設定管理器
 │   │   ├── service_factory.py        #   服務工廠（動態建立 AI 服務）
+│   │   ├── frappe_templates.py       #   Frappe ERP 模組模板定義
 │   │   └── tenants.json              #   租戶設定資料（本機開發用）
 │   ├── services/
 │   │   ├── base_gemini_service.py    #   Gemini AI 基礎類別 + Redis session
@@ -105,22 +108,180 @@ chatbot-platform/
 │   │   └── frappe_query_service.py   #   Frappe ERP 資料查詢服務
 │   ├── middleware/
 │   │   └── tenant_auth.py            #   租戶驗證中介層
+│   ├── test/                         #   測試檔案
+│   │   ├── test_tenant_manager.py    #     租戶管理器測試
+│   │   ├── test_service_factory.py   #     服務工廠測試
+│   │   ├── test_tenant_auth.py       #     租戶驗證測試
+│   │   ├── test_admin_api.py         #     管理 API 測試
+│   │   ├── test_admin_prompts.py     #     提示詞管理測試
+│   │   ├── test_admin_services.py    #     服務管理測試
+│   │   ├── test_frappe_service.py    #     Frappe 服務測試
+│   │   └── test_integration.py       #     整合測試
 │   ├── prompts/{tenant_id}/          #   各租戶提示詞 (Markdown)
 │   ├── translations/{tenant_id}/     #   各租戶多語系翻譯檔 (JSON)
 │   ├── data/                         #   Docker volume 掛載目錄
 │   │   ├── tenants.json              #     生產用租戶設定
-│   │   └── images/tenants/          #     租戶上傳圖片
+│   │   └── images/tenants/           #     租戶上傳圖片
 │   ├── Dockerfile                    #   主 API 容器 (Gunicorn 4w)
 │   ├── Dockerfile.admin              #   管理 API 容器 (Gunicorn 2w)
-│   └── requirements.txt             #   Python 依賴套件
+│   ├── .env.example                  #   後端環境變數範本
+│   └── requirements.txt              #   Python 依賴套件
 ├── public/                           #   靜態資源（圖示、測試頁面）
 ├── docs/
-│   └── APPEARANCE_GUIDE.md          #   外觀設定指南
+│   └── APPEARANCE_GUIDE.md           #   外觀設定指南
 ├── docker-compose.yml                #   容器編排（6 服務）
 ├── nginx.conf                        #   Nginx 反向代理設定
 ├── Dockerfile                        #   前端容器（多階段建置）
+├── next.config.ts                    #   Next.js 設定
+├── tsconfig.json                     #   TypeScript 設定
+├── eslint.config.mjs                 #   ESLint 設定
+├── postcss.config.mjs                #   PostCSS 設定
+├── package.json                      #   前端依賴與腳本
 ├── .env.example                      #   根目錄環境變數範本
 └── LICENSE                           #   AGPL-3.0
+```
+
+### 3.1 功能模組分類
+
+以下按功能將專案中的程式檔案分類，方便快速定位相關程式碼：
+
+#### 🤖 AI 服務模組（`backend/services/`）
+
+核心 AI 對話與查詢邏輯，所有服務皆繼承 `BaseGeminiService`。
+
+```
+├── base_gemini_service.py    # Gemini AI 基礎類別（Redis session、grounding、URL 並行處理）
+├── chat_service.py           # 通用對話問答服務
+├── query_service.py          # 資料查詢服務（含 Google Search grounding + 快取）
+├── smart_route_service.py    # 路線導航服務（Google Maps Function Calling）
+└── frappe_query_service.py   # Frappe ERP 資料查詢服務（REST API + AI 模糊配對）
+```
+
+#### ⚙️ 租戶管理與設定模組（`backend/config/`）
+
+多租戶架構的核心設定層，負責租戶 CRUD、服務動態建立。
+
+```
+├── tenant_manager.py         # 租戶設定管理器（讀寫 tenants.json）
+├── service_factory.py        # 服務工廠（依 class 名稱動態建立服務實例）
+├── frappe_templates.py       # Frappe ERP 模組模板定義
+└── tenants.json              # 租戶設定資料（所有品牌的服務、外觀、Quick Actions）
+```
+
+#### 🔐 中介層模組（`backend/middleware/`）
+
+請求驗證與租戶識別。
+
+```
+└── tenant_auth.py            # 租戶驗證裝飾器（驗證 X-Tenant-ID / X-Admin-Key）
+```
+
+#### 🌐 API 伺服器模組（`backend/`）
+
+Flask 應用程式入口，分為聊天 API 與管理 API。
+
+```
+├── app.py                    # 聊天主 API（port 5000）— 意圖判斷、對話、查詢
+├── admin_app.py              # 管理後台 API（port 5001）— 租戶/服務/外觀 CRUD
+└── db.py                     # PostgreSQL 資料層（訊息記錄、Session 統計）
+```
+
+#### 💬 前端聊天 UI 模組（`src/components/chat/`）
+
+聊天介面的 React 元件，負責訊息顯示、輸入、快捷操作。
+
+```
+├── ChatContainer.tsx         # 主容器（狀態管理、API 呼叫、意圖路由）
+├── ChatHeader.tsx            # 標題列（品牌名稱、語言切換）
+├── MessageList.tsx           # 訊息列表（自動捲動）
+├── Message.tsx               # 單則訊息（Markdown 渲染、參考連結）
+├── InputBar.tsx              # 輸入框（送出、禁用狀態）
+├── QuickActions.tsx          # 快速操作按鈕列
+└── LoadingMessage.tsx        # 載入中動畫
+```
+
+#### 🎨 前端外觀與 UI 元件（`src/components/ui/`）
+
+通用 UI 元件庫。
+
+```
+├── Button.tsx                # 按鈕元件
+├── Card.tsx                  # 卡片元件
+└── Carousel.tsx              # 輪播元件
+```
+
+#### 🛠️ 前端工具與 API 通訊（`src/lib/`）
+
+前端與後端的通訊層、多語系、外觀工具。
+
+```
+├── api-client.ts             # Chat API Client（聊天、意圖、語言偵測）
+├── admin/api-client.ts       # Admin API Client（租戶/服務/外觀/翻譯 CRUD）
+├── appearance.ts             # 外觀型別定義與工具函式
+├── i18n.ts                   # 多語系工具（翻譯載入、語言切換）
+└── utils.ts                  # 通用工具函式
+```
+
+#### 📄 管理後台頁面（`app/admin/`）
+
+Next.js App Router 管理後台頁面。
+
+```
+├── layout.tsx                # 管理後台 Layout（側邊欄導航）
+├── page.tsx                  # 首頁（重定向至品牌列表）
+├── login/page.tsx            # 登入頁（驗證 Admin API Key）
+├── stats/page.tsx            # 全域數據統覽
+└── tenants/
+    ├── page.tsx              # 品牌列表 + 嵌入碼產生
+    └── [id]/
+        ├── page.tsx          # 品牌基本設定 + 翻譯管理
+        ├── services/         # 服務設定 CRUD 頁面
+        ├── appearance/       # 外觀設定（即時預覽）
+        └── dashboard/        # 單一品牌數據儀表板
+```
+
+#### 🌍 多語系與翻譯模組
+
+前端 UI 翻譯與後端 AI 生成翻譯。
+
+```
+├── src/locales/translations.json       # 前端 UI 靜態翻譯檔
+├── src/contexts/LanguageContext.tsx     # React Context（語言狀態管理）
+├── backend/translations/{tenant_id}/   # 各租戶 AI 生成的多語系翻譯（JSON）
+└── src/lib/i18n.ts                     # 多語系工具函式
+```
+
+#### 📝 提示詞管理（`backend/prompts/`）
+
+各租戶各服務的 AI 提示詞，Markdown 格式，可透過管理後台線上編輯。
+
+```
+└── {tenant_id}/
+    ├── general.md            # 通用對話提示詞
+    ├── query.md              # 資料查詢提示詞
+    ├── route.md              # 路線導航提示詞
+    └── ...                   # 其他自訂服務提示詞
+```
+
+#### 🐳 容器化與部署（根目錄）
+
+Docker 容器編排與反向代理設定。
+
+```
+├── docker-compose.yml        # 容器編排（6 服務：redis, postgres, backend, admin-backend, frontend, nginx）
+├── nginx.conf                # Nginx 反向代理（路由分發 + 靜態圖片 serve）
+├── Dockerfile                # 前端容器（多階段建置：deps → build → runner）
+├── backend/Dockerfile        # 主 API 容器（Gunicorn 4 workers）
+└── backend/Dockerfile.admin  # 管理 API 容器（Gunicorn 2 workers）
+```
+
+#### 🖼️ 嵌入式 Widget（`app/api/`）
+
+一行 script 嵌入聊天機器人的產生器。
+
+```
+├── chat-widget/route.ts      # 嵌入式 JS 產生器（浮動按鈕 + iframe）
+└── chat/route.ts             # 聊天 API 代理（placeholder）
 ```
 
 ---
